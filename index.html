@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+  <head>
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#FF8C00" />
+    <link rel="apple-touch-icon" href="/logo192.png" />
+    <meta charset="UTF-8" />
+    
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Flash Entregas.Br</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function() {
+          navigator.serviceWorker.register('/firebase-messaging-sw.js')
+            .then(function(registration) {
+              console.log('Service Worker do PWA registrado com sucesso!', registration.scope);
+            }, function(err) {
+              console.log('Falha ao registrar o Service Worker:', err);
+            });
+        });
+      }
+    </script>
+  </body>
+</html>

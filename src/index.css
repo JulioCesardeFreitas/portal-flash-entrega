@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+@theme {
+  --color-laranja-flash: #FF8C00;
+  --color-preto-flash: #212121;
+  --color-fundo-escuro: #121212;
+}
+
+body {
+  background-color: var(--color-fundo-escuro);
+  color: #ffffff;
+}
+
+/* ==========================================================
+   AJUSTES DO AUTOCOMPLETE DO GOOGLE MAPS (FLASH ENTREGAS)
+   ========================================================== */
+
+/* 1. Tamanho e Fundo da caixa principal */
+.pac-container {
+  min-width: 350px !important;
+  width: auto !important;
+  border-radius: 8px !important;
+  margin-top: 4px !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.8) !important;
+  /* Aplicando o tema escuro do seu projeto */
+  background-color: var(--color-preto-flash) !important;
+  border: 1px solid #374151 !important;
+}
+
+/* Ajuste para telas de celular (responsividade) */
+@media (max-width: 600px) {
+  .pac-container {
+    min-width: 90vw !important;
+  }
+}
+
+/* 2. Estilo de cada linha de endereço sugerida */
+.pac-item {
+  color: #d1d5db !important;
+  border-top: 1px solid #374151 !important;
+  padding: 10px 12px !important;
+  cursor: pointer !important;
+}
+
+/* Efeito ao passar o mouse ou tocar na rua */
+.pac-item:hover {
+  background-color: #31363F !important;
+}
+
+/* 3. Cor do texto digitado combinando com o seu Laranja Flash */
+.pac-item-query {
+  color: var(--color-laranja-flash) !important;
+  font-size: 15px !important;
+  font-weight: bold !important;
+}
+
+/* Opcional: Oculta a logo padrão do Google para deixar mais limpo */
+.pac-logo:after {
+  display: none !important;
+}

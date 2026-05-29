@@ -1,0 +1,19 @@
+{
+  "projects": {
+    "default": "flash-motoboy-1aacc",
+    "S": "flash-motoboy-1aacc"
+  },
+  "targets": {
+    "flash-motoboy-1aacc": {
+      "hosting": {
+        "teste": [
+          "flash-motoboy-1aacc"
+        ],
+        "oficial": [
+          "flash-entregas-br"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
