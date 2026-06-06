@@ -267,6 +267,8 @@ export default function Admin() {
             {/* LISTA DE MOTORISTAS */}
             <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
                 {usuarios
+                  .filter(u => u.tipo === 'entregador') // 1. Garante que lista apenas os motoristas
+                  .filter(u => filtroMotorista === 'aprovados' ? u.aprovado : filtroMotorista === 'pendentes' ? !u.aprovado : true) // 2. Aplica o filtro dos botões
                   .map(u => (
                   <div key={u.id} className="bg-slate-950/50 p-5 rounded-2xl border border-slate-800/50 flex flex-col gap-4 relative group">
                     <div className={`absolute left-0 top-0 bottom-0 w-1 ${u.aprovado ? 'bg-emerald-500' : 'bg-red-500'}`}></div>

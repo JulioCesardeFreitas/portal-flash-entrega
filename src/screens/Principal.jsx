@@ -287,7 +287,8 @@ export default function Principal() {
     if (!auth.currentUser || tipoUsuarioLogado === 'cliente') return;
 
     const pedidosRef = collection(db, "pedidos");
-    const qVigia = query(pedidosRef, where("status", "in", ["pendente", "aguardando_pagamento"]));
+    //const qVigia = query(pedidosRef, where("status", "in", ["pendente", "aguardando_pagamento"]));
+    const qVigia = query(pedidosRef, where("status", "==", "pendente"));
 
     let cargaInicialConcluida = false;
 
@@ -849,22 +850,28 @@ export default function Principal() {
                 </button>
 
                 {/* BOTÃO: Área do Motorista (SÓ MOTORISTA E ADMIN) */}
+                {/* {['motorista', 'entregador', 'admin'].includes(tipoUsuarioLogado) && ( */}
                 {['motorista', 'entregador', 'admin'].includes(tipoUsuarioLogado) && (
-                  <button 
-                    onClick={() => {
-                      if (estaAprovado || tipoUsuarioLogado === 'admin') navigate('/motorista');
-                      else mostrarAviso('erro', 'Sua conta ainda está em análise.');
-                    }} 
-                    className={`w-full px-8 py-4 rounded-2xl font-bold text-lg shadow-lg transform hover:-translate-y-1 transition-all border flex items-center justify-center gap-3 ${
-                      (estaAprovado || tipoUsuarioLogado === 'admin') 
-                        ? "bg-gradient-to-r from-blue-900 to-orange-500 text-white border-blue-100/50 shadow-blue-500/10" 
-                        : "bg-slate-800/50 text-slate-500 border-slate-700"
-                    }`}
-                  >
-                    <span className="text-2xl">{(estaAprovado || tipoUsuarioLogado === 'admin') ? "🏍️" : "⏳"}</span> 
-                    {(estaAprovado || tipoUsuarioLogado === 'admin') ? "Área do Motorista" : "Aguardando Aprovação"}
-                  </button>
-                )}
+                <button 
+                  onClick={() => {
+                    if (tipoUsuarioLogado === 'admin') {
+                      navigate('/motorista');
+                    } else {
+                      mostrarAviso('info', 'Acesse esta área através do nosso aplicativo oficial.');
+                    }
+                  }} 
+                  className={`w-full px-8 py-4 rounded-2xl font-bold text-lg shadow-lg transform hover:-translate-y-1 transition-all border flex items-center justify-center gap-3 ${
+                    tipoUsuarioLogado === 'admin'
+                      ? "bg-gradient-to-r from-blue-900 to-orange-500 text-white border-blue-100/50 shadow-blue-500/10" 
+                      : "bg-slate-800/50 text-slate-500 border-slate-700"
+                  }`}
+                >
+                  {tipoUsuarioLogado !== 'admin' && <span className="text-2xl">📱</span>}
+                  {tipoUsuarioLogado === 'admin' 
+                    ? "Acesso Motorista (Painel Administrativo)" 
+                    : "Acesso Motorista - Apenas via APP"}
+                </button>
+              )}
 
                 {/* BOTÃO: Painel Admin */}
                 {tipoUsuarioLogado === 'admin' && (
