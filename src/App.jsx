@@ -17,6 +17,7 @@ import AdminValores from './screens/AdminValores';
 import AdminCredito from './screens/AdminCredito'; 
 import AdminGerenciarPedidos from './screens/AdminGerenciarPedidos'; 
 import TabelaPrecos from './screens/TabelaPrecos';
+import SolicitacoesResgate from './screens/SolicitacoesResgate';
 
 import ProtectedRoute from './components/ProtectedRoute'; // O Leão de chácara simples
 import RoleProtectedRoute from './components/RoleProtectedRoute'; // O Gerente de Segurança (NOVO)
@@ -98,6 +99,12 @@ function App() {
         <Route path="/admin/tabela-precos" element={
           <RoleProtectedRoute user={usuario} allowedRoles={['admin']}>
             <TabelaPrecos />
+          </RoleProtectedRoute>
+        } />
+
+        <Route path="/admin/saques" element={
+          <RoleProtectedRoute user={usuario} allowedRoles={['admin']}>
+            <SolicitacoesResgate />
           </RoleProtectedRoute>
         } />
 

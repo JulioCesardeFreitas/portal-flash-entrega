@@ -1,5 +1,4 @@
-
-const { onDocumentWritten } = require("firebase-functions/v2/firestore");
+const { onDocumentWritten, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { onRequest } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const axios = require("axios");
@@ -10,27 +9,20 @@ admin.initializeApp();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // === 1. DISPARAR GRITO (Com repetição a cada 4 segundos) ===
-// === 1. DISPARAR GRITO (Corrigido para validar Status e Pagamento) ===
 exports.enviarGritoNovoPedido = onDocumentWritten("pedidos/{pedidoId}", async (event) => {
-    // Se o documento foi deletado, ignora
     if (!event.data.after.exists) return;
 
     const novoPedido = event.data.after.data();
     const dadosAntigos = event.data.before.exists ? event.data.before.data() : null;
     const pedidoId = event.params.pedidoId;
 
-    // --- NOVA LÓGICA DE VALIDAÇÃO ---
-    // 1. O status deve ser "pendente"
-    // 2. O pagamento deve estar liberado (pago via app ou dinheiro na entrega)
     const ehPendente = novoPedido.status === "pendente";
     const ehPagamentoLiberado = ["pago_pelo_app", "cobrar_no_local"].includes(novoPedido.status_pagamento);
     
-    // Verifica se houve uma mudança relevante: agora é pendente e antes não era, ou o pagamento foi confirmado agora
     const statusMudouParaLiberado = ehPendente && ehPagamentoLiberado && 
                                    (!dadosAntigos || dadosAntigos.status !== "pendente" || !["pago_pelo_app", "cobrar_no_local"].includes(dadosAntigos.status_pagamento));
 
-    if (!statusMudouParaLiberado) return; // Interrompe se não atender aos requisitos
-    // --------------------------------
+    if (!statusMudouParaLiberado) return; 
 
     console.log(`Iniciando ciclo de notificações para o pedido liberado: ${pedidoId}`);
 
@@ -48,9 +40,7 @@ exports.enviarGritoNovoPedido = onDocumentWritten("pedidos/{pedidoId}", async (e
         snapshotMotoristas.forEach(doc => {
             const dados = doc.data();
             const tokenParaEnvio = dados.fcmToken || dados.expoPushToken;
-            if (tokenParaEnvio) {
-                tokens.push(tokenParaEnvio);
-            }
+            if (tokenParaEnvio) tokens.push(tokenParaEnvio);
         });
 
         if (tokens.length === 0) {
@@ -66,10 +56,7 @@ exports.enviarGritoNovoPedido = onDocumentWritten("pedidos/{pedidoId}", async (e
             },
             android: {
                 priority: "high",
-                notification: {
-                    channelId: "corrida_urgente",
-                    sound: "default"
-                }
+                notification: { channelId: "corrida_urgente", sound: "default" }
             },
             data: {
                 tipo: "nova_corrida",
@@ -81,15 +68,10 @@ exports.enviarGritoNovoPedido = onDocumentWritten("pedidos/{pedidoId}", async (e
             }
         };
 
-        // =========================================================
-        // 🔄 LOOP DE NOTIFICAÇÕES (Até 3 vezes com intervalo de 4s)
-        // =========================================================
         const maxTentativas = 3;
-        const intervaloMs = 4000; // 4 segundos
+        const intervaloMs = 4000; 
 
         for (let tentativa = 1; tentativa <= maxTentativas; tentativa++) {
-            
-            // A partir da 2ª tentativa, verifica se o pedido JÁ FOI ACEITO
             if (tentativa > 1) {
                 const docAtual = await admin.firestore().collection("pedidos").doc(pedidoId).get();
                 if (!docAtual.exists || docAtual.data().status !== "pendente") {
@@ -101,9 +83,7 @@ exports.enviarGritoNovoPedido = onDocumentWritten("pedidos/{pedidoId}", async (e
             console.log(`Disparando FCM (Tentativa ${tentativa}/${maxTentativas})...`);
             await admin.messaging().sendEachForMulticast(mensagemFCM);
 
-            if (tentativa < maxTentativas) {
-                await sleep(intervaloMs);
-            }
+            if (tentativa < maxTentativas) await sleep(intervaloMs);
         }
     } catch (error) {
         console.error("Erro ao enviar notificações FCM:", error);
@@ -164,7 +144,6 @@ exports.gerarLinkPagamento = onRequest({ cors: true }, async (req, res) => {
 
 // === 3. WEBHOOK INFINITEPAY ===
 exports.webhookInfinitePay = onRequest({ cors: true }, async (req, res) => {
-    // 🛡️ SEGURANÇA: Verifica se o token na URL é o correto
     const token = req.query.token;
     if (token !== "FLASH_SECRETO_9988") {
         console.warn("🚨 Tentativa de acesso não autorizado ao Webhook!");
@@ -177,7 +156,6 @@ exports.webhookInfinitePay = onRequest({ cors: true }, async (req, res) => {
     const payloadTransacao = dados.data ? dados.data : dados;
     const pedidoId = payloadTransacao.order_nsu || payloadTransacao.reference_id || dados.order_nsu;
     
-    // Validação robusta de pagamento
     const statusPago = !!dados.transaction_nsu && (dados.paid_amount > 0);
 
     if (pedidoId && statusPago) {
@@ -226,5 +204,66 @@ exports.webhookInfinitePay = onRequest({ cors: true }, async (req, res) => {
         }
     } else {
         res.status(200).send("Recebido.");
+    }
+});
+
+// === 4. NOVO: FINALIZAR CORRIDA (ATUALIZAR SALDO E GERAR EXTRATO) ===
+exports.finalizarCorrida = onDocumentUpdated("pedidos/{pedidoId}", async (event) => {
+    const novoDados = event.data.after.data();
+    const antigoDados = event.data.before.data();
+    const pedidoId = event.params.pedidoId;
+
+    // Só executa se o status acabou de mudar para 'concluido'
+    if (novoDados.status === 'concluido' && antigoDados.status !== 'concluido') {
+        // Suporta tanto entregador_uid quanto entregador_id dependendo de como você salva
+        const motoristaId = novoDados.entregador_uid || novoDados.entregador_id; 
+        
+        if (!motoristaId) {
+            console.log(`⚠️ Pedido ${pedidoId} concluído sem entregador associado.`);
+            return;
+        }
+
+        const valorMotorista = Number(novoDados.valor_motorista || 0);
+        const taxaPlataforma = Number(novoDados.taxa_plataforma || 0);
+        const statusPagamento = novoDados.status_pagamento;
+
+        let valorParaAlterarSaldo = 0;
+
+        if (statusPagamento === "pago_pelo_app") {
+            // Motorista recebe a parte dele
+            valorParaAlterarSaldo = valorMotorista;
+        } else if (statusPagamento === "cobrar_no_local") {
+            // Motorista desconta a parte da plataforma que ficou no bolso dele
+            valorParaAlterarSaldo = -Math.abs(taxaPlataforma);
+        } else {
+            console.log(`⚠️ Status de pagamento ignorado: ${statusPagamento}`);
+            return;
+        }
+
+        const db = admin.firestore();
+        const batch = db.batch(); // O Batch garante que saldo e extrato não falhem no meio do caminho
+
+        // 1. Atualizar Saldo na Carteira do Motorista
+        const motoristaRef = db.collection('usuarios').doc(motoristaId);
+        batch.update(motoristaRef, {
+            saldo_carteira: admin.firestore.FieldValue.increment(valorParaAlterarSaldo)
+        });
+
+        // 2. Gravar o "Recibo" (Extrato) para aparecer no Histórico dele
+        const extratoRef = db.collection('extrato_plataforma').doc(); 
+        batch.set(extratoRef, {
+            uid_motorista: motoristaId,
+            nome_motorista: novoDados.nome_entregador || "Entregador",
+            valor_motorista: valorMotorista,
+            lucro_plataforma: taxaPlataforma,
+            status_pagamento: statusPagamento,
+            pedido_id: pedidoId,
+            data_hora: admin.firestore.FieldValue.serverTimestamp()
+        });
+
+        // 3. Confirmar e gravar tudo ao mesmo tempo no banco
+        await batch.commit();
+
+        console.log(`✅ Corrida ${pedidoId} finalizada. Saldo do motorista ${motoristaId} alterado em R$ ${valorParaAlterarSaldo}`);
     }
 });

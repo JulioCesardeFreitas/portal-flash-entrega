@@ -539,8 +539,8 @@ export default function Principal() {
       }
 
       // === NOVIDADE: A MATEMÁTICA DOS 20/80 (O Cérebro da Operação) ===
-      const taxaPlataforma = valorNumerico * multiplicadorPlataforma; // A parte da Flash Entregas
-      const valorMotorista = valorNumerico * multiplicadorMotorista; // A parte do Motoboy
+      const taxaPlataforma = Number((valorNumerico * multiplicadorPlataforma).toFixed(2)); 
+      const valorMotorista = Number((valorNumerico - taxaPlataforma).toFixed(2));
 
       // 3. Criar o documento do pedido no Firestore com os novos campos
       const docRef = await addDoc(collection(db, "pedidos"), {

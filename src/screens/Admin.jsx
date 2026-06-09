@@ -7,6 +7,10 @@ import AdminBotoes from './AdminBotoes';
 export default function Admin() {
   const [pedidos, setPedidos] = useState([]);
   const [usuarios, setUsuarios] = useState([]);
+  
+  // === NOVO: ESTADO PARA OS SAQUES ===
+  const [solicitacoes, setSolicitacoes] = useState([]);
+  
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const [ordenacao, setOrdenacao] = useState('nome');
@@ -18,6 +22,12 @@ export default function Admin() {
   const [modalDocsAberto, setModalDocsAberto] = useState(false);
   const [motoristaSelecionado, setMotoristaSelecionado] = useState(null);
   
+  // === NOVO: MODAL DE PAGAMENTO DE SAQUE ===
+  const [modalSaqueAberto, setModalSaqueAberto] = useState(false);
+  const [saqueSelecionado, setSaqueSelecionado] = useState(null);
+  const [comprovanteUrl, setComprovanteUrl] = useState('');
+  const [processandoSaque, setProcessandoSaque] = useState(false);
+
   const [configValores, setConfigValores] = useState({
     taxaMinima: 0,
     kmMinimo: 0,
@@ -29,15 +39,20 @@ export default function Admin() {
     fetchConfiguracoes();
   }, []);
 
-  // Função centralizada para avisos
   function mostrarAviso(tipo, msg) {
     setModalFeedback({ aberto: true, tipo: tipo, mensagem: msg });
   }
 
-  // Função para abrir o modal de documentos
   function abrirModalDocs(motorista) {
     setMotoristaSelecionado(motorista);
     setModalDocsAberto(true);
+  }
+
+  // === NOVO: FUNÇÃO PARA ABRIR O MODAL DE SAQUE ===
+  function abrirModalSaque(saque) {
+    setSaqueSelecionado(saque);
+    setComprovanteUrl(''); // Limpa o input sempre que abrir
+    setModalSaqueAberto(true);
   }
 
   async function fetchDadosGerais() {
@@ -50,6 +65,12 @@ export default function Admin() {
       const qUsers = query(collection(db, "usuarios"), orderBy("nome", "asc"));
       const snapUsers = await getDocs(qUsers);
       setUsuarios(snapUsers.docs.map(d => ({ id: d.id, ...d.data() })));
+
+      // === NOVO: BUSCAR SOLICITAÇÕES DE RESGATE ===
+      const qSaques = query(collection(db, "solicitacoes_resgate"), orderBy("data_solicitacao", "desc"));
+      const snapSaques = await getDocs(qSaques);
+      setSolicitacoes(snapSaques.docs.map(d => ({ id: d.id, ...d.data() })));
+
     } catch (e) {
       console.error(e);
       mostrarAviso('erro', 'Falha ao carregar dados do servidor.');
@@ -77,7 +98,6 @@ export default function Admin() {
       setUsuarios(prev => prev.map(u => u.id === id ? { ...u, aprovado: !statusAtual } : u));
       mostrarAviso('sucesso', `Status do motorista alterado para ${!statusAtual ? 'APROVADO' : 'BLOQUEADO'}.`);
       
-      // Se aprovou por dentro do modal, podemos fechá-lo
       if (modalDocsAberto) {
         setModalDocsAberto(false);
       }
@@ -86,11 +106,43 @@ export default function Admin() {
     }
   }
 
+  // === NOVO: FUNÇÃO QUE APROVA O SAQUE ===
+  async function handleAprovarSaque(e) {
+    e.preventDefault();
+    if (!comprovanteUrl.trim()) {
+      mostrarAviso('erro', 'Por favor, cole o link do comprovante de pagamento!');
+      return;
+    }
+
+    setProcessandoSaque(true);
+    try {
+      const saqueRef = doc(db, 'solicitacoes_resgate', saqueSelecionado.id);
+      await updateDoc(saqueRef, {
+        status: 'realizado',
+        comprovante_url: comprovanteUrl,
+        data_pagamento: new Date()
+      });
+
+      // Atualiza a lista na tela sem precisar recarregar
+      setSolicitacoes(prev => prev.map(s => s.id === saqueSelecionado.id ? { ...s, status: 'realizado', comprovante_url: comprovanteUrl } : s));
+      
+      mostrarAviso('sucesso', 'Pagamento confirmado! O motorista já pode ver o comprovante no App.');
+      setModalSaqueAberto(false);
+    } catch (error) {
+      mostrarAviso('erro', 'Não foi possível confirmar o pagamento.');
+    } finally {
+      setProcessandoSaque(false);
+    }
+  }
+
   const faturamentoTotal = pedidos.reduce((acc, p) => acc + (p.valor || 0), 0);
-  const totalClientes = usuarios.filter(u => u.tipo === 'cliente').length; // Trouxe pra cá
+  const totalClientes = usuarios.filter(u => u.tipo === 'cliente').length; 
   const totalEntregadores = usuarios.filter(u => u.tipo === 'entregador').length;
   const motoristasAtivos = usuarios.filter(u => u.tipo === 'entregador' && u.aprovado).length;
   const motoristasPendentes = totalEntregadores - motoristasAtivos;
+
+  // Calculando saques pendentes
+  const saquesPendentes = solicitacoes.filter(s => s.status === 'pendente');
 
   if (loading) {
     return (
@@ -173,15 +225,14 @@ export default function Admin() {
           </div>
         </div>
 
-        {/* LISTAS */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* LISTAS (Clientes e Motoristas) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           
           <section className="bg-slate-900/50 backdrop-blur-md p-6 md:p-8 rounded-3xl border border-slate-800 flex flex-col h-[700px]">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
               <h2 className="font-bold flex items-center gap-3 text-white text-lg">
                 <span className="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center text-sm">👤</span> 
                 Clientes Cadastrados
-                {/* NOVO: Contador de Clientes */}
                 <span className="bg-blue-500/20 text-white-400 text-[18px] px-2.5 py-1 rounded-md font-black">
                   {totalClientes}
                 </span>
@@ -213,17 +264,13 @@ export default function Admin() {
 
           <section className="bg-slate-900/50 backdrop-blur-md p-6 md:p-8 rounded-3xl border border-slate-800 flex flex-col h-[700px]">
             
-            {/* CABEÇALHO COM FILTROS E CONTADORES SEPARADOS */}
             <div className="flex flex-col mb-6 gap-4">
-              
-              {/* Linha 1: Título e Botões Limpos */}
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                 <h2 className="font-bold flex items-center gap-3 text-white text-lg">
                   <span className="w-8 h-8 rounded-lg bg-orange-500/10 text-orange-400 flex items-center justify-center text-sm">🏍️</span> 
                   Gestão de Motoristas
                 </h2>
                 
-                {/* Filtro de Motoristas (Visual Original) */}
                 <div className="flex bg-slate-950 p-1.5 rounded-xl border border-slate-800 shadow-inner overflow-x-auto">
                   <button 
                     onClick={() => setFiltroMotorista('todos')} 
@@ -246,7 +293,6 @@ export default function Admin() {
                 </div>
               </div>
 
-              {/* Linha 2: Barra de Contadores (Nova) */}
               <div className="flex gap-3 border-t border-slate-800/50 pt-4 overflow-x-auto custom-scrollbar pb-1">
                 <div className="bg-slate-950/50 border border-slate-800 rounded-xl px-4 py-2 flex gap-3 items-center min-w-max">
                   <span className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">Total</span>
@@ -261,14 +307,12 @@ export default function Admin() {
                   <span className="font-black text-red-400 text-sm">{motoristasPendentes}</span>
                 </div>
               </div>
-
             </div>
 
-            {/* LISTA DE MOTORISTAS */}
             <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
                 {usuarios
-                  .filter(u => u.tipo === 'entregador') // 1. Garante que lista apenas os motoristas
-                  .filter(u => filtroMotorista === 'aprovados' ? u.aprovado : filtroMotorista === 'pendentes' ? !u.aprovado : true) // 2. Aplica o filtro dos botões
+                  .filter(u => u.tipo === 'entregador') 
+                  .filter(u => filtroMotorista === 'aprovados' ? u.aprovado : filtroMotorista === 'pendentes' ? !u.aprovado : true) 
                   .map(u => (
                   <div key={u.id} className="bg-slate-950/50 p-5 rounded-2xl border border-slate-800/50 flex flex-col gap-4 relative group">
                     <div className={`absolute left-0 top-0 bottom-0 w-1 ${u.aprovado ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
@@ -284,7 +328,6 @@ export default function Admin() {
                       <span className={`px-3 py-1.5 rounded-lg text-[10px] font-bold tracking-widest uppercase border ${u.aprovado ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>{u.aprovado ? 'Aprovado' : 'Pendente'}</span>
                     </div>
 
-                    {/* Botões do Motorista (Mantidos iguais) */}
                     <div className="flex gap-2 w-full mt-2">
                       <button 
                         onClick={() => abrirModalDocs(u)}
@@ -299,11 +342,9 @@ export default function Admin() {
                         {u.aprovado ? 'Bloquear' : 'Aprovar'}
                       </button>
                     </div>
-
                   </div>
                 ))}
                 
-                {/* Mensagem caso o filtro não encontre ninguém */}
                 {usuarios.filter(u => u.tipo === 'entregador').filter(u => filtroMotorista === 'aprovados' ? u.aprovado : filtroMotorista === 'pendentes' ? !u.aprovado : true).length === 0 && (
                   <div className="text-center py-10 text-slate-500 text-sm">
                     Nenhum motorista encontrado neste filtro.
@@ -312,6 +353,84 @@ export default function Admin() {
             </div>
           </section>
         </div>
+
+        {/* === NOVIDADE: SEÇÃO DE SAQUES (RESGATES) === */}
+        <section className="bg-slate-900/50 backdrop-blur-md p-6 md:p-8 rounded-3xl border border-slate-800 flex flex-col mb-10">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+            <h2 className="font-bold flex items-center gap-3 text-white text-lg">
+              <span className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center text-sm">🏦</span> 
+              Solicitações de Resgate (Saques)
+              {saquesPendentes.length > 0 && (
+                <span className="bg-red-500 text-white text-[12px] px-2.5 py-0.5 rounded-full font-black animate-pulse shadow-lg shadow-red-500/50">
+                  {saquesPendentes.length} Pendentes
+                </span>
+              )}
+            </h2>
+          </div>
+
+          <div className="overflow-x-auto">
+            {solicitacoes.length === 0 ? (
+              <div className="text-center py-10 text-slate-500 text-sm border border-dashed border-slate-700 rounded-2xl">
+                Nenhuma solicitação de resgate encontrada.
+              </div>
+            ) : (
+              <table className="w-full text-left text-sm text-slate-400">
+                <thead className="text-xs uppercase bg-slate-950/50 border-b border-slate-800 text-slate-500">
+                  <tr>
+                    <th className="px-6 py-4 rounded-tl-xl">Data</th>
+                    <th className="px-6 py-4">Motorista</th>
+                    <th className="px-6 py-4">Chave PIX</th>
+                    <th className="px-6 py-4">Valor</th>
+                    <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4 rounded-tr-xl text-right">Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {solicitacoes.map((req) => {
+                    const isPendente = req.status === 'pendente';
+                    const dataObj = req.data_solicitacao?.toDate ? req.data_solicitacao.toDate() : new Date(req.data_solicitacao);
+                    
+                    return (
+                      <tr key={req.id} className="border-b border-slate-800/50 hover:bg-slate-800/20 transition-colors">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {dataObj.toLocaleDateString('pt-BR')} <span className="text-[10px] text-slate-500 ml-1">{dataObj.toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</span>
+                        </td>
+                        <td className="px-6 py-4 font-bold text-slate-200">{req.nome_motorista || 'Entregador'}</td>
+                        <td className="px-6 py-4 font-mono text-emerald-400">{req.chave_pix}</td>
+                        <td className="px-6 py-4 font-black text-white">R$ {Number(req.valor).toFixed(2).replace('.', ',')}</td>
+                        <td className="px-6 py-4">
+                          <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest ${isPendente ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
+                            {req.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {isPendente ? (
+                            <button 
+                              onClick={() => abrirModalSaque(req)}
+                              className="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold text-xs uppercase shadow-lg shadow-emerald-500/20 transition-all"
+                            >
+                              Pagar via PIX
+                            </button>
+                          ) : (
+                            <a 
+                              href={req.comprovante_url} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-blue-400 hover:text-blue-300 text-xs font-bold uppercase underline underline-offset-4"
+                            >
+                              Ver Comprovante
+                            </a>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </section>
+
       </div>
 
       {/* === MODAL DE FEEDBACK === */}
@@ -328,99 +447,115 @@ export default function Admin() {
         </div>
       )}
 
+      {/* === NOVO: MODAL DE PAGAMENTO DE SAQUE === */}
+      {modalSaqueAberto && saqueSelecionado && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-[200]">
+          <div className="bg-slate-900 border border-slate-700 w-full max-w-md rounded-3xl p-8 shadow-2xl flex flex-col animate-in zoom-in duration-300">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                <span className="text-emerald-400">💸</span> Confirmar Pagamento
+              </h3>
+              <button onClick={() => setModalSaqueAberto(false)} className="text-slate-500 hover:text-white text-2xl font-bold transition-colors">&times;</button>
+            </div>
+
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 mb-6">
+              <p className="text-slate-400 text-xs uppercase font-bold tracking-widest mb-1">Pagar para:</p>
+              <p className="text-white font-bold text-lg">{saqueSelecionado.nome_motorista}</p>
+              
+              <div className="mt-4 flex justify-between items-center border-t border-slate-800 pt-4">
+                <div>
+                  <p className="text-slate-400 text-xs uppercase font-bold tracking-widest mb-1">Chave PIX:</p>
+                  <p className="text-emerald-400 font-mono font-bold">{saqueSelecionado.chave_pix}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-slate-400 text-xs uppercase font-bold tracking-widest mb-1">Valor:</p>
+                  <p className="text-white font-black text-xl">R$ {Number(saqueSelecionado.valor).toFixed(2).replace('.', ',')}</p>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleAprovarSaque} className="flex flex-col gap-4">
+              <div>
+                <label className="block text-slate-400 text-xs font-bold uppercase tracking-widest mb-2">Link do Comprovante (URL)</label>
+                <input 
+                  type="url" 
+                  required
+                  placeholder="Ex: https://meudrive.com/comprovante.pdf"
+                  value={comprovanteUrl}
+                  onChange={(e) => setComprovanteUrl(e.target.value)}
+                  className="w-full bg-slate-950 text-white px-4 py-3 rounded-xl border border-slate-700 outline-none focus:border-emerald-500 transition-colors text-sm"
+                />
+                <p className="text-[10px] text-slate-500 mt-2">Dica: Faça o PIX no seu banco, gere o PDF/Imagem, faça upload no Google Drive (modo público) ou Imgur, e cole o link aqui.</p>
+              </div>
+
+              <div className="flex gap-3 mt-4">
+                <button 
+                  type="button"
+                  onClick={() => setModalSaqueAberto(false)}
+                  className="flex-1 py-3 rounded-xl font-bold text-xs uppercase border border-slate-700 text-slate-300 hover:bg-slate-800 transition-all"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  type="submit"
+                  disabled={processandoSaque}
+                  className="flex-1 py-3 rounded-xl font-bold text-xs uppercase bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-50"
+                >
+                  {processandoSaque ? 'Processando...' : 'Confirmar PIX'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* === MODAL DE DOCUMENTOS === */}
       {modalDocsAberto && motoristaSelecionado && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-[200]">
           <div className="bg-slate-900 border border-slate-700 w-full max-w-4xl rounded-3xl p-8 shadow-2xl flex flex-col animate-in zoom-in duration-300">
-            
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-2xl font-bold text-white">
                 Documentos: <span className="text-blue-400">{motoristaSelecionado.nome}</span>
               </h3>
-              <button 
-                onClick={() => setModalDocsAberto(false)}
-                className="text-slate-400 hover:text-white text-2xl font-bold transition-colors"
-              >
-                &times;
-              </button>
+              <button onClick={() => setModalDocsAberto(false)} className="text-slate-400 hover:text-white text-2xl font-bold transition-colors">&times;</button>
             </div>
-
+            {/* O Resto do Modal de documentos fica exatamente igual ao seu original, já embutido aqui! */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 overflow-y-auto max-h-[60vh] pr-2 custom-scrollbar">
               {/* Card da CNH */}
-              {/* Card da CNH */}
               <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 flex flex-col items-center justify-center text-center">
-                <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 mb-4 text-3xl">
-                  🪪
-                </div>
+                <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 mb-4 text-3xl">🪪</div>
                 <p className="text-slate-200 font-bold mb-1">Carteira de Motorista</p>
                 <p className="text-slate-500 text-xs mb-6">Documento CNH anexado</p>
-
                 {motoristaSelecionado.cnh_url ? (
-                  <a 
-                    href={motoristaSelecionado.cnh_url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2"
-                  >
+                  <a href={motoristaSelecionado.cnh_url} target="_blank" rel="noopener noreferrer" className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-blue-500/20 flex items-center justify-center gap-2">
                     <span>Abrir Visualizador</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                    </svg>
                   </a>
                 ) : (
-                  <div className="w-full py-3 bg-slate-900 border border-dashed border-slate-700 rounded-xl">
-                    <p className="text-red-400 text-sm font-medium">Não anexada</p>
-                  </div>
+                  <div className="w-full py-3 bg-slate-900 border border-dashed border-slate-700 rounded-xl"><p className="text-red-400 text-sm font-medium">Não anexada</p></div>
                 )}
               </div>
-
               {/* Card do CRV */}
               <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 flex flex-col items-center justify-center text-center">
-                <div className="w-16 h-16 rounded-full bg-orange-500/10 flex items-center justify-center text-orange-400 mb-4 text-3xl">
-                  📄
-                </div>
+                <div className="w-16 h-16 rounded-full bg-orange-500/10 flex items-center justify-center text-orange-400 mb-4 text-3xl">📄</div>
                 <p className="text-slate-200 font-bold mb-1">Documento do Veículo</p>
                 <p className="text-slate-500 text-xs mb-6">CRV anexado</p>
-
                 {motoristaSelecionado.crv_url ? (
-                  <a 
-                    href={motoristaSelecionado.crv_url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2"
-                  >
+                  <a href={motoristaSelecionado.crv_url} target="_blank" rel="noopener noreferrer" className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-orange-500/20 flex items-center justify-center gap-2">
                     <span>Abrir Visualizador</span>
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                    </svg>
                   </a>
                 ) : (
-                  <div className="w-full py-3 bg-slate-900 border border-dashed border-slate-700 rounded-xl">
-                    <p className="text-red-400 text-sm font-medium">Não anexado</p>
-                  </div>
+                  <div className="w-full py-3 bg-slate-900 border border-dashed border-slate-700 rounded-xl"><p className="text-red-400 text-sm font-medium">Não anexado</p></div>
                 )}
               </div>
             </div>
-
             <div className="mt-8 flex flex-col sm:flex-row justify-end gap-4 border-t border-slate-800 pt-6">
-              <button 
-                onClick={() => setModalDocsAberto(false)} 
-                className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-xl transition-colors"
-              >
-                Fechar
-              </button>
-              
-              {/* Botão extra para aprovar direto do modal */}
+              <button onClick={() => setModalDocsAberto(false)} className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-xl transition-colors">Fechar</button>
               {!motoristaSelecionado.aprovado && (
-                <button 
-                  onClick={() => alternarStatusMotorista(motoristaSelecionado.id, !!motoristaSelecionado.aprovado)} 
-                  className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl transition-colors shadow-lg shadow-emerald-500/20"
-                >
+                <button onClick={() => alternarStatusMotorista(motoristaSelecionado.id, !!motoristaSelecionado.aprovado)} className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-bold rounded-xl transition-colors shadow-lg shadow-emerald-500/20">
                   ✅ Aprovar Motorista
                 </button>
               )}
             </div>
-
           </div>
         </div>
       )}
